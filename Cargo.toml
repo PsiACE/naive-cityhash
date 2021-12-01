@@ -1,0 +1,14 @@
+[package]
+name = "naive-cityhash"
+version = "0.1.0"
+authors = ["Chojan Shang <psiace@outlook.com>"]
+edition = "2021"
+license = "MIT/Apache-2.0"
+repository = "https://github.com/psiace/naive-cityhash"
+description = "A naive native 128-bit cityhash v102 implementation for clickhouse*."
+
+[lib]
+doctest = false
+test = false
+
+[dependencies]
