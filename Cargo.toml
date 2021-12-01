@@ -12,3 +12,16 @@ doctest = false
 test = false
 
 [dependencies]
+
+[dev-dependencies]
+criterion = "0.3.5"
+fake = "2.4.3"
+quickcheck = "1.0.3"
+quickcheck_macros = "1.0.0"
+rand = "0.8.4"
+# cityhash binding
+clickhouse-rs-cityhash-sys = "0.1.2"
+
+[[bench]]
+name = "basic"
+harness = false
