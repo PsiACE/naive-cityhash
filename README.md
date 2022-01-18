@@ -1,6 +1,6 @@
 # Naive CityHash
 
-`naive-cityhash` is a naive native 128-bit cityhash v102 implementation for clickhouse*.
+`naive-cityhash` is a naive native 64/128 bit cityhash implementation for databend.
 
 ## Contact
 
