@@ -134,6 +134,54 @@ fn hash_len0to16(data: &[u8]) -> u64 {
     }
 }
 
+fn hash_len17to32(data: &[u8]) -> u64 {
+    debug_assert!(data.len() > 16);
+
+    let a = fetch64(data).wrapping_mul(K1);
+    let b = fetch64(&data[8..]);
+    let c = fetch64(&data[data.len() - 8..]).wrapping_mul(K2);
+    let d = fetch64(&data[data.len() - 16..]).wrapping_mul(K0);
+    hash_len16(
+        rotate_least(a.wrapping_sub(b), 43)
+            .wrapping_add(rotate_least(c, 30))
+            .wrapping_add(d),
+        a.wrapping_add(rotate_least(b ^ K3, 20))
+            .wrapping_sub(c)
+            .wrapping_add(data.len() as u64),
+    )
+}
+
+fn hash_len33to64(data: &[u8]) -> u64 {
+    debug_assert!(data.len() > 32);
+
+    let mut z = fetch64(&data[24..]);
+    let mut a = fetch64(data).wrapping_add(
+        K0.wrapping_mul((data.len() as u64).wrapping_add(fetch64(&data[data.len() - 16..]))),
+    );
+    let mut b = rotate_least(a.wrapping_add(z), 52);
+    let mut c = rotate_least(a, 37);
+    a = fetch64(&data[8..]).wrapping_add(a);
+    c = rotate_least(a, 7).wrapping_add(c);
+    a = fetch64(&data[16..]).wrapping_add(a);
+
+    let vf = a.wrapping_add(z);
+    let vs = b.wrapping_add(rotate_least(a, 31)).wrapping_add(c);
+    a = fetch64(&data[16..]) + fetch64(&data[data.len() - 32..]);
+    z = fetch64(&data[data.len() - 8..]);
+    b = rotate_least(a.wrapping_add(z), 52);
+    c = rotate_least(a, 37);
+    a = fetch64(&data[data.len() - 24..]).wrapping_add(a);
+    c = rotate_least(a, 7).wrapping_add(c);
+    a = fetch64(&data[data.len() - 16..]).wrapping_add(a);
+    let wf = a.wrapping_add(z);
+    let ws = b.wrapping_add(rotate_least(a, 31)).wrapping_add(c);
+    let r = shift_mix(
+        K2.wrapping_mul(vf.wrapping_add(ws))
+            .wrapping_add(K0.wrapping_mul(wf.wrapping_add(vs))),
+    );
+    shift_mix(vs.wrapping_add(r.wrapping_mul(K0))).wrapping_mul(K2)
+}
+
 fn weak_hash_len32_with_seeds(data: &[u8], a: u64, b: u64) -> (u64, u64) {
     _weak_hash_len32_with_seeds(
         fetch64(data),
@@ -199,7 +247,7 @@ fn city_murmur(mut data: &[u8], seed: U128) -> U128 {
     U128::new(a ^ b, hash_len16(b, a))
 }
 
-fn cityhash128_with_seed(mut data: &[u8], seed: U128) -> U128 {
+pub fn cityhash128_with_seed(mut data: &[u8], seed: U128) -> U128 {
     if data.len() < 128 {
         return city_murmur(data, seed);
     }
@@ -306,4 +354,78 @@ pub fn cityhash128(data: &[u8]) -> U128 {
     } else {
         cityhash128_with_seed(data, U128 { lo: K0, hi: K1 })
     }
+}
+
+#[inline]
+pub fn cityhash64(data: &[u8]) -> u64 {
+    if data.len() <= 32 {
+        if data.len() <= 16 {
+            return hash_len0to16(data);
+        } else {
+            return hash_len17to32(data);
+        }
+    } else if data.len() <= 64 {
+        return hash_len33to64(data);
+    }
+
+    let mut x = fetch64(data);
+    let mut y = fetch64(&data[data.len() - 16..]) ^ K1;
+    let mut z = fetch64(&data[data.len() - 56..]) ^ K0;
+
+    let mut v: (u64, u64) =
+        weak_hash_len32_with_seeds(&data[data.len() - 64..], data.len() as u64, y);
+    let mut w: (u64, u64) = weak_hash_len32_with_seeds(
+        &data[data.len() - 32..],
+        K1.wrapping_mul(data.len() as u64),
+        K0,
+    );
+
+    z = shift_mix(v.1).wrapping_mul(K1).wrapping_add(z);
+    x = rotate_least(z.wrapping_add(x), 39).wrapping_mul(K1);
+    y = rotate_least(y, 33).wrapping_mul(K1);
+
+    let mut len = (data.len() - 1) & !63;
+
+    let mut data = data;
+
+    loop {
+        x = rotate_least(
+            x.wrapping_add(y)
+                .wrapping_add(v.0)
+                .wrapping_add(fetch64(&data[16..])),
+            37,
+        )
+        .wrapping_mul(K1);
+        y = rotate_least(y.wrapping_add(v.1).wrapping_add(fetch64(&data[48..])), 42)
+            .wrapping_mul(K1);
+        x ^= w.1;
+        y ^= v.0;
+        z = rotate_least(z ^ w.0, 33);
+        v = weak_hash_len32_with_seeds(data, v.1.wrapping_mul(K1), x.wrapping_add(w.0));
+        w = weak_hash_len32_with_seeds(&data[32..], z.wrapping_add(w.1), y);
+        core::mem::swap(&mut z, &mut x);
+
+        len -= 64;
+
+        if len == 0 {
+            break;
+        }
+
+        data = &data[64..];
+    }
+
+    hash_len16(
+        hash_len16(v.0, w.0)
+            .wrapping_add(shift_mix(y).wrapping_mul(K1))
+            .wrapping_add(z),
+        hash_len16(v.1, w.1).wrapping_add(x),
+    )
+}
+
+pub fn cityhash64_with_seed(data: &[u8], seed: u64) -> u64 {
+    cityhash64_with_seeds(data, K2, seed)
+}
+
+pub fn cityhash64_with_seeds(data: &[u8], seed0: u64, seed1: u64) -> u64 {
+    hash_len16(cityhash64(data).wrapping_sub(seed0), seed1)
 }
